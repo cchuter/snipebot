@@ -1,0 +1,23 @@
+{
+  "name": "snipebot",
+  "version": "0.1.0",
+  "description": "Auto-buy new Gala pump tokens from websocket CreateSale events.",
+  "main": "src/snipebot.js",
+  "scripts": {
+    "start": "node src/snipebot.js"
+  },
+  "keywords": [
+    "gala",
+    "pump",
+    "launchpad",
+    "trading",
+    "bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@gala-chain/gswap-sdk": "^0.0.9",
+    "dotenv": "^16.4.5",
+    "socket.io-client": "^4.8.1"
+  }
+}
