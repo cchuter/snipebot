@@ -23,19 +23,17 @@ npm start
 
 What happens:
 - Connects to `wss://bundle-backend-prod1.defi.gala.com` (override with `GALA_BUNDLE_WS`).
-- On a `CreateSale` event it logs the token, checks the blacklist, then waits for the pool to come online.
-- Uses exponential backoff (configurable via `RETRY_BASE_MS`/`RETRY_MAX_MS`) to avoid spew while probing for the pool.
-- As soon as quoting works, it swaps `BASE_TOKEN` (default `GALA|Unit|none|none`) into the new token for `BUY_AMOUNT`, honoring `SLIPPAGE`.
-- All activity is appended to `logs/snipebot.log`.
+- On a `CreateSale` event it logs the token, checks the blacklist, then calls `scripts/buy_launchpad_token.js` to submit a launchpad buy immediately.
+- All activity is appended to `logs/snipebot.log` (including buy script stdout/stderr).
+- Successful buys are appended to `tokens_bought.csv` (token name, symbol, vault, tx id, amount).
 
 ## Env vars
 
 - `WALLET_PRIVATE_KEY`, `WALLET_ADDRESS` — required signer used for buys.
 - `BUY_AMOUNT` — how much of the base token to spend per launch.
-- `BASE_TOKEN` — token to swap from (defaults to GALA native).
-- `SLIPPAGE` — multiplier applied to quoted out amount (e.g., `0.98` keeps 2% buffer).
+- `SLIPPAGE` — slippage factor passed to the launchpad buy script (e.g., `0.05`).
 - `GALA_BUNDLE_WS` — bundle websocket URL.
-- `RETRY_BASE_MS`, `RETRY_MAX_MS` — backoff tuning while waiting for pools to exist.
+- `tokens_bought.csv` is used by `npm run check:launchpad` to query holdings.
 
 ## Blacklist behavior
 
