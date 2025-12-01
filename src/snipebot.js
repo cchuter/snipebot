@@ -24,6 +24,18 @@ const delayOverride = process.env.SNIPEBOT_DELAY_MS || process.env.SNIPEBOT_DELA
 const BUY_DELAY_MS = Number.isFinite(parseInt(delayOverride, 10))
   ? parseInt(delayOverride, 10)
   : DEFAULT_DELAY_MS;
+const RETRY_BASE_MS = Number.isFinite(parseInt(process.env.RETRY_BASE_MS, 10))
+  ? parseInt(process.env.RETRY_BASE_MS, 10)
+  : 250;
+const RETRY_MAX_MS = Number.isFinite(parseInt(process.env.RETRY_MAX_MS, 10))
+  ? parseInt(process.env.RETRY_MAX_MS, 10)
+  : 6000;
+const RETRY_MAX_ATTEMPTS = Number.isFinite(parseInt(process.env.RETRY_MAX_ATTEMPTS, 10))
+  ? parseInt(process.env.RETRY_MAX_ATTEMPTS, 10)
+  : 20;
+const DEBUG =
+  (process.env.SNIPEBOT_DEBUG || '').toString().toLowerCase() === 'true' ||
+  process.env.SNIPEBOT_DEBUG === '1';
 
 const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY;
 
@@ -166,6 +178,28 @@ function parseTxId(output) {
   return match ? match[1] : null;
 }
 
+function parseTxIdLoosely(output) {
+  if (!output) return null;
+  const txMatch = output.match(/transactionId['"?:=\\s]+([0-9a-fA-F-]{8,})/i);
+  if (txMatch) return txMatch[1];
+  const generic = output.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+  return generic ? generic[1] : null;
+}
+
+function shouldSuppressLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  const noisyPatterns = [/AxiosError/i, /node:/, /internal\//, /at .*\.js:\d/, /MODULE_NOT_FOUND/];
+  return noisyPatterns.some((re) => re.test(trimmed));
+}
+
+function extractPoolNotFound(line) {
+  if (line.toLowerCase().includes('pool not found')) {
+    return 'Pool not found with the given parameters';
+  }
+  return null;
+}
+
 async function executeBuy(token) {
   const label = `${token.symbol || symbolFromVault(token.vaultAddress) || token.tokenName || 'token'}`;
   writeLog(`🆕 CreateSale detected for ${label} (${token.vaultAddress})`);
@@ -206,40 +240,94 @@ async function executeBuy(token) {
     await sleep(BUY_DELAY_MS);
   }
 
-  const child = spawn(process.execPath, [BUY_SCRIPT_PATH, tokenArg, BUY_AMOUNT, SLIPPAGE], {
-    env: { ...process.env, WALLET_PRIVATE_KEY },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let attempt = 0;
+  let succeeded = false;
+  let lastErrorSummary = null;
+  let lastTxId = null;
+  let sawSubmission = false;
 
-  let output = '';
-  child.stdout.on('data', (data) => {
-    const text = data.toString();
-    output += text;
-    text.split(/\r?\n/).forEach((line) => {
-      if (line.trim()) writeLog(`[buy stdout] ${line}`);
+  while (!succeeded && attempt < RETRY_MAX_ATTEMPTS) {
+    attempt += 1;
+    lastErrorSummary = null;
+    sawSubmission = false;
+    const child = spawn(process.execPath, [BUY_SCRIPT_PATH, tokenArg, BUY_AMOUNT, SLIPPAGE], {
+      env: { ...process.env, WALLET_PRIVATE_KEY },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-  });
-  child.stderr.on('data', (data) => {
-    const text = data.toString();
-    output += text;
-    text.split(/\r?\n/).forEach((line) => {
-      if (line.trim()) writeError(`[buy stderr] ${line}`);
-    });
-  });
 
-  await new Promise((resolve) => {
-    child.on('close', (code) => {
-      if (code === 0) {
-        const txId = parseTxId(output);
-        writeLog(`✅ Launchpad buy exited 0${txId ? ` | txId=${txId}` : ''}`);
-        recordBoughtToken(token, txId || '');
-      } else {
-        writeError(`❌ Launchpad buy failed (exit ${code}).`);
-      }
-      trackedVaults.delete(token.vaultAddress);
-      resolve();
+    let output = '';
+    let poolErrorLogged = false;
+
+    child.stdout.on('data', (data) => {
+      const text = data.toString();
+      output += text;
+      text.split(/\r?\n/).forEach((line) => {
+        if (!line.trim()) return;
+        if (!DEBUG && shouldSuppressLine(line)) return;
+        if (line.toLowerCase().includes('transactionid')) {
+          writeLog(`[buy stdout] ${line.trim()}`);
+          const tx = parseTxId(line);
+          if (tx) {
+            lastTxId = tx;
+          }
+        } else if (line.toLowerCase().includes('buy submitted')) {
+          sawSubmission = true;
+          writeLog(`[buy stdout] ${line.trim()}`);
+        } else if (DEBUG) {
+          writeLog(`[buy stdout] ${line.trim()}`);
+        }
+      });
     });
-  });
+
+    child.stderr.on('data', (data) => {
+      const text = data.toString();
+      output += text;
+      text.split(/\r?\n/).forEach((line) => {
+        const poolMsg = extractPoolNotFound(line);
+        if (poolMsg && !poolErrorLogged) {
+          lastErrorSummary = poolMsg;
+          poolErrorLogged = true;
+          writeLog(`[buy stderr] ${poolMsg}`);
+        } else if (DEBUG && line.trim()) {
+          writeError(`[buy stderr] ${line.trim()}`);
+        }
+      });
+    });
+
+    // eslint-disable-next-line no-await-in-loop
+    const exitCode = await new Promise((resolve) => {
+      child.on('close', (code) => resolve(code));
+    });
+
+    const txId = lastTxId || parseTxId(output) || parseTxIdLoosely(output);
+
+    if (txId || sawSubmission) {
+      const finalTxId = txId || '';
+      writeLog(`✅ Launchpad buy exited ${exitCode}${finalTxId ? ` | txId=${finalTxId}` : ''}`);
+      recordBoughtToken(token, finalTxId);
+      succeeded = true;
+      break;
+    }
+
+    if (exitCode === 0) {
+      writeLog(`✅ Launchpad buy exited 0 (no txId captured)`);
+      recordBoughtToken(token, '');
+      succeeded = true;
+      break;
+    }
+
+    const delay = Math.min(RETRY_BASE_MS * 2 ** (attempt - 1), RETRY_MAX_MS);
+    const reason = lastErrorSummary || 'buy script failed';
+    if (attempt < RETRY_MAX_ATTEMPTS) {
+      writeLog(`⚠️ ${reason}; retry ${attempt}/${RETRY_MAX_ATTEMPTS} in ${delay}ms`);
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(delay);
+    } else {
+      writeError(`❌ Launchpad buy failed after ${attempt} attempts: ${reason}`);
+    }
+  }
+
+  trackedVaults.delete(token.vaultAddress);
 }
 
 async function walkPayload(payload, eventName, visited = new WeakSet()) {

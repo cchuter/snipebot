@@ -26,6 +26,7 @@ What happens:
 - On a `CreateSale` event it logs the token, checks the blacklist, then calls `scripts/buy_launchpad_token.js` to submit a launchpad buy immediately.
 - All activity is appended to `logs/snipebot.log` (including buy script stdout/stderr).
 - Successful buys are appended to `tokens_bought.csv` (token name, symbol, vault, tx id, amount).
+  - Set `SNIPEBOT_DEBUG=true` to see verbose stdout/stderr from the buy script.
 
 ## Env vars
 
@@ -33,7 +34,13 @@ What happens:
 - `BUY_AMOUNT` — how much of the base token to spend per launch.
 - `SLIPPAGE` — slippage factor passed to the launchpad buy script (e.g., `0.05`).
 - `GALA_BUNDLE_WS` — bundle websocket URL.
+- `SNIPEBOT_DEBUG` — set to true/1 for verbose buy-script logging.
 - `tokens_bought.csv` is used by `npm run check:launchpad` to query holdings.
+
+## Utility scripts
+
+- `npm run check:launchpad` — queries launchpad balances for tokens listed in `tokens_bought.csv` using your `WALLET_PRIVATE_KEY`.
+- `npm run buy:launchpad -- <TOKEN_NAME> [amount=66] [slippage=0.05]` — manually submit a launchpad buy via the SDK (same script the bot uses).
 
 ## Blacklist behavior
 

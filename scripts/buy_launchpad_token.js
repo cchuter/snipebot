@@ -172,15 +172,21 @@ async function main() {
 main()
   .then(() => {
     // Ensure SDK connections are cleaned up so the process can exit.
-    if (typeof LaunchpadSDK.cleanupAll === 'function') {
-      LaunchpadSDK.cleanupAll();
+    try {
+      if (typeof LaunchpadSDK.cleanupAll === 'function') {
+        LaunchpadSDK.cleanupAll();
+      }
+    } catch (err) {
+      // swallow cleanup errors to avoid failing after a successful buy
     }
     process.exit(0);
   })
   .catch((err) => {
     console.error('❌ Buy failed:', err?.message || err);
-    if (typeof LaunchpadSDK.cleanupAll === 'function') {
-      LaunchpadSDK.cleanupAll();
-    }
+    try {
+      if (typeof LaunchpadSDK.cleanupAll === 'function') {
+        LaunchpadSDK.cleanupAll();
+      }
+    } catch (_) {}
     process.exit(1);
   });
