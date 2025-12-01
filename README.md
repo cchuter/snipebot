@@ -43,6 +43,10 @@ What happens:
 - `npm run check:launchpad` — queries launchpad balances for tokens listed in `tokens_bought.csv` using your `WALLET_PRIVATE_KEY`.
 - `npm run buy:launchpad -- <TOKEN_NAME> [amount=66] [slippage=0.05]` — manually submit a launchpad buy via the SDK (same script the bot uses).
 
+## Disclaimer
+
+This software is provided “AS IS”, without warranties or guarantees of any kind. Use at your own risk. Trading involves risk; the authors and contributors are not responsible for any loss of funds or other damages.
+
 ## Blacklist behavior
 
 If the creator/additional key from the sale or the launchpad vault’s address segment matches an entry in `blacklist.csv`, the bot logs the skip and will not buy that token. Keep one address per line under the `address` header.
