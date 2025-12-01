@@ -43,6 +43,9 @@ const AMOUNT_GALA = amountArg || '66';
 const SLIPPAGE = Number.isFinite(parseFloat(slippageArg)) ? parseFloat(slippageArg) : 0.05;
 const SEARCH_LIMIT = Number.parseInt(process.env.LAUNCHPAD_SEARCH_LIMIT || '100', 10); // backend max 100
 const DEBUG = (process.env.LAUNCHPAD_DEBUG || '').toLowerCase() === '1';
+const SKIP_QUOTE =
+  (process.env.SKIP_QUOTE || '').toString().toLowerCase() === 'true' ||
+  process.env.SKIP_QUOTE === '1';
 
 function logDebug(...args) {
   if (DEBUG) {
@@ -136,25 +139,36 @@ async function main() {
   const tokenNameForRequest = TOKEN_NAME_OVERRIDE || resolved.tokenName || TOKEN_SYMBOL;
   const tokenId = TOKEN_ID_OVERRIDE || resolved.tokenId;
 
-  console.log(
-    `🔍 Quoting ${AMOUNT_GALA} GALA -> ${tokenNameForRequest}${tokenId ? ` (${tokenId})` : ''}`
-  );
-  // Passing tokenId/vault has stricter validation; rely on token name resolution instead.
-  const quote = await sdk.calculateBuyAmount({
-    tokenName: tokenNameForRequest,
-    amount: AMOUNT_GALA,
-    type: 'native',
-    mode: 'external',
-  });
+  let expectedOut = new BigNumber(0);
+  let minOut = '0';
+  let reverseFee = 0;
 
-  logDebug('quote raw:', quote);
+  if (!SKIP_QUOTE) {
+    console.log(
+      `🔍 Quoting ${AMOUNT_GALA} GALA -> ${tokenNameForRequest}${tokenId ? ` (${tokenId})` : ''}`
+    );
+    // Passing tokenId/vault has stricter validation; rely on token name resolution instead.
+    const quote = await sdk.calculateBuyAmount({
+      tokenName: tokenNameForRequest,
+      amount: AMOUNT_GALA,
+      type: 'native',
+      mode: 'external',
+    });
 
-  const expectedOut = new BigNumber(quote.amount || '0');
-  const minOut = expectedOut.multipliedBy(new BigNumber(1).minus(SLIPPAGE)).toFixed();
+    logDebug('quote raw:', quote);
 
-  console.log(`Expected tokens: ${quote.amount}`);
-  console.log(`Min tokens w/ slippage ${SLIPPAGE}: ${minOut}`);
-  console.log(`Reverse bonding curve fee: ${quote.reverseBondingCurveFee}`);
+    expectedOut = new BigNumber(quote.amount || '0');
+    minOut = expectedOut.multipliedBy(new BigNumber(1).minus(SLIPPAGE)).toFixed();
+    reverseFee = quote.reverseBondingCurveFee;
+
+    console.log(`Expected tokens: ${quote.amount}`);
+    console.log(`Min tokens w/ slippage ${SLIPPAGE}: ${minOut}`);
+    console.log(`Reverse bonding curve fee: ${quote.reverseBondingCurveFee}`);
+  } else {
+    console.log(
+      `🚀 SKIPPING QUOTE: submitting buy for ${AMOUNT_GALA} GALA -> ${tokenNameForRequest}${tokenId ? ` (${tokenId})` : ''}`
+    );
+  }
 
   console.log('🚀 Submitting buy...');
   const result = await sdk.buy({
@@ -163,7 +177,7 @@ async function main() {
     type: 'native',
     expectedAmount: minOut,
     slippageToleranceFactor: SLIPPAGE,
-    maxAcceptableReverseBondingCurveFee: quote.reverseBondingCurveFee,
+    maxAcceptableReverseBondingCurveFee: reverseFee,
   });
 
   console.log('✅ Buy submitted:', result);

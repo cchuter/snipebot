@@ -35,6 +35,7 @@ What happens:
 - `SLIPPAGE` — slippage factor passed to the launchpad buy script (e.g., `0.05`).
 - `GALA_BUNDLE_WS` — bundle websocket URL.
 - `SNIPEBOT_DEBUG` — set to true/1 for verbose buy-script logging.
+- `SKIP_QUOTE` — set to true/1 to bypass quoting and submit buys immediately (higher risk; expects pool ready).
 - `tokens_bought.csv` is used by `npm run check:launchpad` to query holdings.
 
 ## Utility scripts

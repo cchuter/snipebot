@@ -251,7 +251,12 @@ async function executeBuy(token) {
     lastErrorSummary = null;
     sawSubmission = false;
     const child = spawn(process.execPath, [BUY_SCRIPT_PATH, tokenArg, BUY_AMOUNT, SLIPPAGE], {
-      env: { ...process.env, WALLET_PRIVATE_KEY },
+      env: {
+        ...process.env,
+        WALLET_PRIVATE_KEY,
+        LAUNCHPAD_VAULT_ADDRESS: token.vaultAddress || process.env.LAUNCHPAD_VAULT_ADDRESS,
+        LAUNCHPAD_TOKEN_NAME: tokenArg,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
